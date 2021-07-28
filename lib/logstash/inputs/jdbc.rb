@@ -136,6 +136,7 @@ module LogStash module Inputs class Jdbc < LogStash::Inputs::Base
 
   # adds ecs_compatibility config which could be :disabled or :v1
   include LogStash::PluginMixins::ECSCompatibilitySupport(:disabled,:v1,:v8 => :v1)
+  include LogStash::PluginMixins::ECSCompatibilitySupport::TargetCheck
 
   # adds `event_factory` and `targeted_event_factory
   include LogStash::PluginMixins::EventSupport::EventFactoryAdapter
@@ -276,13 +277,6 @@ module LogStash module Inputs class Jdbc < LogStash::Inputs::Base
         converter.logger = self.logger
         converters[encoding] = converter
       end
-    end
-
-    # target must be populated if ecs_compatibility is not :disabled
-    if @target.nil? && ecs_compatibility != :disabled
-      logger.info('ECS compatibility is enabled but no ``target`` option was specified, it is recommended'\
-                  ' to set the option to avoid potential schema conflicts (if your data is ECS compliant or'\
-                  ' non-conflicting feel free to ignore this message)')
     end
   end # def register
 
