@@ -26,6 +26,10 @@ describe LogStash::Inputs::Jdbc, :integration => true do
   let(:plugin) { LogStash::Inputs::Jdbc.new(settings) }
   let(:queue) { Queue.new }
 
+  before(:each) do
+    allow(plugin).to receive(:logger).and_return(double('Logger').as_null_object)
+  end
+
   context "when connecting to a postgres instance" do
     before do
       plugin.register
@@ -112,23 +116,17 @@ describe LogStash::Inputs::Jdbc, :integration => true do
       )
     end
 
-    it "log warning msg when plugin run" do
-      expect( plugin ).to receive(:log_java_exception)
-      expect(plugin.logger).to receive(:warn).once.with("Exception when executing JDBC query",
-                                                        hash_including(:message => instance_of(String)))
-      expect{ plugin.register }.to raise_error(::LogStash::ConfigurationError)
-    end
+    it "logs error message and (native) Java driver when schedule is executed" do
 
-    it "should log (native) Java driver error" do
-      expect( org.apache.logging.log4j.LogManager ).to receive(:getLogger).and_wrap_original do |m, *args|
-        logger = m.call(*args)
-        expect( logger ).to receive(:error) do |_, e|
-          expect( e ).to be_a org.postgresql.util.PSQLException
-        end.and_call_original
-        logger
-      end
-      expect{ plugin.register }.to raise_error(::LogStash::ConfigurationError)
+      expect( plugin ).to receive(:log_java_exception).with(an_instance_of org.postgresql.util.PSQLException)
+      expect(plugin.logger).to receive(:error).once.with(a_string_including("Unable to connect to database"),
+                                                         hash_including(:message => instance_of(String)))
+
+      plugin.register
+
+      q = Queue.new
+
+      plugin.run(q)
     end
   end
 end
-

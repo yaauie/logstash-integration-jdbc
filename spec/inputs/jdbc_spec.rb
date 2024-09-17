@@ -1296,11 +1296,12 @@ describe LogStash::Inputs::Jdbc do
 
     it "should log error message" do
       allow(Sequel).to receive(:connect).and_raise(Sequel::PoolTimeout)
-      expect(plugin.logger).to receive(:error).with("Failed to connect to database. 0 second timeout exceeded. Tried 1 times.")
-      expect do
-        plugin.register
-        plugin.run(queue)
-      end.to raise_error(Sequel::PoolTimeout)
+      allow(plugin.logger).to receive(:error)
+
+      plugin.register
+      plugin.run(queue)
+
+      expect(plugin.logger).to have_received(:error).with("Failed to connect to database. 0 second timeout exceeded. Tried 1 times.")
     end
   end
 
@@ -1376,12 +1377,13 @@ describe LogStash::Inputs::Jdbc do
       mixin_settings['connection_retry_attempts'] = 2
       mixin_settings['jdbc_pool_timeout'] = 0
       allow(Sequel).to receive(:connect).and_raise(Sequel::PoolTimeout)
-      expect(plugin.logger).to receive(:error).with("Failed to connect to database. 0 second timeout exceeded. Trying again.")
-      expect(plugin.logger).to receive(:error).with("Failed to connect to database. 0 second timeout exceeded. Tried 2 times.")
-      expect do
-        plugin.register
-        plugin.run(queue)
-      end.to raise_error(Sequel::PoolTimeout)
+      allow(plugin.logger).to receive(:error)
+
+      plugin.register
+      plugin.run(queue)
+
+      expect(plugin.logger).to have_received(:error).with("Failed to connect to database. 0 second timeout exceeded. Trying again.")
+      expect(plugin.logger).to have_received(:error).with("Failed to connect to database. 0 second timeout exceeded. Tried 2 times.")
     end
 
     it "should not fail when passed a non-positive value" do
@@ -1826,6 +1828,22 @@ describe LogStash::Inputs::Jdbc do
         expect { plugin.send(:load_driver) }.to raise_error LogStash::PluginLoadingError,
                                                             /ClassNotFoundException: org.apache.NonExistentDriver/
       end
+    end
+  end
+
+  describe '#log_java_exception' do
+    it 'proxies the provided (native) exception to the underlying logger' do
+      marker_exception = java.lang.Exception.new("marker")
+
+      expect( org.apache.logging.log4j.LogManager ).to receive(:getLogger).and_wrap_original do |m, *args|
+        m.call(*args).tap do |logger|
+          expect(logger).to receive(:error) do |_, logged_exception|
+            expect(logged_exception).to be(marker_exception)
+          end.and_call_original
+        end
+      end
+
+      plugin.send(:log_java_exception, marker_exception)
     end
   end
 end

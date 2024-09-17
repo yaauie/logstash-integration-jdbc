@@ -158,23 +158,37 @@ module LogStash  module PluginMixins module Jdbc
       logger.error('', e) # prints nested causes
     end
 
+    def prepare_jdbc_connection
+      @connection_lock = ReentrantLock.new
+    end
+
+    def ensure_jdbc_connection
+      @connection_lock.lock
+      open_jdbc_connection if @database.nil?
+    ensure
+      @connection_lock.unlock
+    end
+
     def open_jdbc_connection
+      @connection_lock.lock
+      fail("database already open") unless @database.nil?
+
       # at this point driver is already loaded
       Sequel.application_timezone = @plugin_timezone.to_sym
 
-      @database = jdbc_connect()
-      @database.extension(:pagination)
+      database = jdbc_connect()
+      database.extension(:pagination)
       if @jdbc_default_timezone
-        @database.extension(:named_timezones)
-        @database.timezone = TimezoneProxy.load(@jdbc_default_timezone)
+        database.extension(:named_timezones)
+        database.timezone = TimezoneProxy.load(@jdbc_default_timezone)
       end
       if @jdbc_validate_connection
-        @database.extension(:connection_validator)
-        @database.pool.connection_validation_timeout = @jdbc_validation_timeout
+        database.extension(:connection_validator)
+        database.pool.connection_validation_timeout = @jdbc_validation_timeout
       end
-      @database.fetch_size = @jdbc_fetch_size unless @jdbc_fetch_size.nil?
+      database.fetch_size = @jdbc_fetch_size unless @jdbc_fetch_size.nil?
       begin
-        @database.test_connection
+        database.test_connection
       rescue Java::JavaSql::SQLException => e
         @logger.warn("Failed test_connection with java.sql.SQLException.", :exception => e)
       rescue Sequel::DatabaseConnectionError => e
@@ -183,16 +197,22 @@ module LogStash  module PluginMixins module Jdbc
         raise e
       end
 
-      @database.sql_log_level = @sql_log_level.to_sym
-      @database.logger = @logger
+      database.sql_log_level = @sql_log_level.to_sym
+      database.logger = @logger
 
-      @database.extension :identifier_mangling
+      database.extension :identifier_mangling
 
       if @lowercase_column_names
-        @database.identifier_output_method = :downcase
+        database.identifier_output_method = :downcase
       else
-        @database.identifier_output_method = :to_s
+        database.identifier_output_method = :to_s
       end
+
+      # now that we have successfully connected and configured
+      # the database, we can persist it as an ivar for future access
+      @database = database
+    ensure
+      @connection_lock.unlock
     end
 
     public
@@ -210,9 +230,11 @@ module LogStash  module PluginMixins module Jdbc
     def execute_statement
       success = false
       retry_attempts = @statement_retry_attempts
+      @connection_lock.lock
 
       begin
         retry_attempts -= 1
+        ensure_jdbc_connection
         sql_last_value = @use_column_value ? @value_tracker.value : Time.now.utc
         @tracking_column_warning_sent = false
         @statement_handler.perform_query(@database, @value_tracker.value) do |row|
@@ -238,6 +260,8 @@ module LogStash  module PluginMixins module Jdbc
       end
 
       return success
+    ensure
+      @connection_lock.unlock
     end
 
     public
