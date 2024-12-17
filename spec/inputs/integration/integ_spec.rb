@@ -116,17 +116,45 @@ describe LogStash::Inputs::Jdbc, :integration => true do
       )
     end
 
-    it "logs error message and (native) Java driver when schedule is executed" do
+    context "without a schedule" do
+      before(:each) { expect(plugin).to_not receive(:execute_query) }
 
-      expect( plugin ).to receive(:log_java_exception).with(an_instance_of org.postgresql.util.PSQLException)
-      expect(plugin.logger).to receive(:error).once.with(a_string_including("Unable to connect to database"),
-                                                         hash_including(:message => instance_of(String)))
+      it "logs error message and (native) Java driver when plugin is registered" do
+        expect( plugin ).to receive(:log_java_exception).with(an_instance_of org.postgresql.util.PSQLException)
 
-      plugin.register
+        expect(plugin.logger).to receive(:error).once.with(a_string_including("Unable to connect to database"),
+                                                           hash_including(:message => instance_of(String)))
 
-      q = Queue.new
+        expect{ plugin.register }.to raise_error(LogStash::ConfigurationError)
+      end
+    end
 
-      plugin.run(q)
+    context "with a schedule" do
+      let(:settings) do
+        super().merge("schedule" => "* * * * *")
+      end
+      before(:each) do
+        # force the scheduler to run the task it receives just once with minimal delay
+        expect(plugin.scheduler).to receive(:cron) do |sch, &block|
+          plugin.scheduler.in("1s", &block)
+        end
+      end
+
+      it "logs error message and (native) Java driver when schedule is executed" do
+
+        expect( plugin ).to receive(:log_java_exception).with(an_instance_of org.postgresql.util.PSQLException)
+        expect(plugin.logger).to receive(:error).once.with(a_string_including("Unable to connect to database"),
+                                                           hash_including(:message => instance_of(String)))
+
+        plugin.register
+
+        q = Queue.new
+
+        # schedule termination of plugin for 3s in future
+        Thread.new { sleep 3; plugin.stop }
+
+        plugin.run(q)
+      end
     end
   end
 end

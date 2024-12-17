@@ -1298,8 +1298,10 @@ describe LogStash::Inputs::Jdbc do
       allow(Sequel).to receive(:connect).and_raise(Sequel::PoolTimeout)
       allow(plugin.logger).to receive(:error)
 
-      plugin.register
-      plugin.run(queue)
+      expect do
+        plugin.register
+        plugin.run(queue)
+      end.to raise_exception(LogStash::ConfigurationError)
 
       expect(plugin.logger).to have_received(:error).with("Failed to connect to database. 0 second timeout exceeded. Tried 1 times.")
     end
@@ -1379,8 +1381,10 @@ describe LogStash::Inputs::Jdbc do
       allow(Sequel).to receive(:connect).and_raise(Sequel::PoolTimeout)
       allow(plugin.logger).to receive(:error)
 
-      plugin.register
-      plugin.run(queue)
+      expect do
+        plugin.register
+        plugin.run(queue)
+      end.to raise_exception(LogStash::ConfigurationError)
 
       expect(plugin.logger).to have_received(:error).with("Failed to connect to database. 0 second timeout exceeded. Trying again.")
       expect(plugin.logger).to have_received(:error).with("Failed to connect to database. 0 second timeout exceeded. Tried 2 times.")

@@ -307,6 +307,24 @@ module LogStash module Inputs class Jdbc < LogStash::Inputs::Base
     end
 
     load_driver
+
+    # when running a single unscheduled query, failing to connect
+    # during registration crashes the plugin for historic reasons.
+    if @schedule.nil?
+      begin
+        ensure_jdbc_connection
+      rescue Sequel::DatabaseConnectionError,
+             Sequel::PoolTimeout,
+             Sequel::DatabaseError,
+             Sequel::InvalidValue,
+             Java::JavaSql::SQLException => e
+        details = { exception: e.class, message: e.message }
+        details[:cause] = e.cause.inspect if e.cause
+        details[:backtrace] = e.backtrace if @logger.debug?
+        @logger.warn("Exception when executing JDBC query", details)
+        raise(LogStash::ConfigurationError, "Can't create a connection pool to the database")
+      end
+    end
   end # def register
 
   # test injection points
